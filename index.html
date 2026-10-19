@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3ee">
+  <title>Folio — PDF editor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f4f3ee;
+      --surface: #fffefa;
+      --surface-2: #eeede6;
+      --ink: #20221f;
+      --muted: #85877f;
+      --line: #dfdfd6;
+      --accent: #d4573d;
+      --accent-dark: #b8442e;
+      --green: #39775f;
+      --sidebar-width: 248px;
+      font-family: "DM Sans", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 360px; min-height: 100vh; overflow: hidden; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, .splitter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    [hidden] { display: none !important; }
+
+    .app { height: 100vh; min-height: 480px; display: flex; flex-direction: column; }
+    .topbar {
+      height: 58px; flex: 0 0 58px; display: flex; align-items: center; gap: 24px;
+      padding: 0 22px; background: var(--surface); border-bottom: 1px solid var(--line); z-index: 2;
+    }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 165px; }
+    .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; background: var(--accent); color: white; border-radius: 6px 6px 6px 2px; }
+    .brand-mark svg { width: 17px; height: 17px; stroke-width: 2.2; }
+    .brand-name { font-family: Fraunces, Georgia, serif; font-size: 20px; line-height: 1; letter-spacing: 0; }
+    .document-name { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 215px; }
+    .menu { display: flex; align-items: center; gap: 4px; height: 100%; }
+    .menu-button, .icon-button, .tool-button {
+      border: 0; background: transparent; cursor: pointer; border-radius: 5px; transition: background .15s, color .15s;
+    }
+    .menu-button { padding: 8px 11px; font-size: 13px; }
+    .menu-button:hover, .icon-button:hover, .tool-button:hover { background: var(--surface-2); }
+    .menu-button:disabled { opacity: .42; cursor: not-allowed; }
+    .top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .saved-state { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .saved-state svg { width: 14px; height: 14px; color: var(--green); }
+    .primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 35px; padding: 0 13px; border: 1px solid var(--accent); border-radius: 5px; background: var(--accent); color: white; font-size: 12px; font-weight: 600; cursor: pointer; transition: background .15s, transform .15s; }
+    .primary-button:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+    .primary-button:active { transform: translateY(1px); }
+    .primary-button:disabled { opacity: .45; cursor: not-allowed; }
+    .primary-button svg { width: 15px; height: 15px; }
+
+    .workspace { min-height: 0; flex: 1; display: flex; }
+    .sidebar { width: var(--sidebar-width); min-width: 150px; max-width: 420px; flex: 0 0 var(--sidebar-width); display: flex; flex-direction: column; background: #f8f7f2; }
+    .side-heading { height: 53px; flex: 0 0 53px; padding: 0 15px 0 19px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .side-heading h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; }
+    .page-count { color: var(--muted); font: 11px "DM Mono", monospace; }
+    .thumbnail-list { min-height: 0; flex: 1; padding: 15px 14px 24px; overflow-y: auto; scrollbar-color: #c8c9c0 transparent; scrollbar-width: thin; }
+    .thumb-item { position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 7px; margin: 0 0 17px; padding: 8px 8px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; cursor: pointer; }
+    .thumb-item:hover { background: #efeee8; }
+    .thumb-item.active { border-color: var(--accent); background: #fffefa; box-shadow: 0 2px 8px #2c2a2210; }
+    .thumb-canvas-wrap { width: min(100%, 156px); aspect-ratio: 0.707; display: grid; place-items: center; overflow: hidden; background: white; box-shadow: 0 1px 4px #25251e24; }
+    .thumb-canvas-wrap canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .thumb-caption { display: flex; width: min(100%, 156px); justify-content: space-between; color: var(--muted); font-size: 10px; }
+    .thumb-caption strong { color: var(--ink); font-weight: 500; }
+    .splitter { position: relative; width: 6px; flex: 0 0 6px; margin: 0 -3px; cursor: col-resize; z-index: 1; }
+    .splitter::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--line); transition: background .15s, width .15s; }
+    .splitter:hover::after, .splitter.dragging::after { left: 1px; width: 3px; background: var(--accent); }
+    .main-panel { min-width: 0; flex: 1; display: flex; flex-direction: column; background-color: #e9e8e2; background-image: radial-gradient(#ffffff45 0.7px, transparent 0.7px); background-size: 12px 12px; }
+    .canvas-toolbar { height: 53px; flex: 0 0 53px; display: flex; align-items: center; justify-content: space-between; padding: 0 21px; border-bottom: 1px solid #d8d8d0; background: #f4f3eecc; }
+    .current-page { font: 11px "DM Mono", monospace; color: var(--muted); }
+    .view-tools { display: flex; align-items: center; gap: 7px; }
+    .tool-button { width: 30px; height: 30px; display: grid; place-items: center; }
+    .tool-button svg { width: 15px; height: 15px; }
+    .zoom-label { width: 40px; text-align: center; font: 11px "DM Mono", monospace; color: #606159; }
+    .canvas-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 34px 35px 60px; }
+    .page-stage { position: relative; flex: 0 0 auto; min-width: 240px; min-height: 340px; display: grid; place-items: center; background: white; box-shadow: 0 2px 5px #26251e18, 0 16px 42px #26251e19; transform-origin: top center; transition: width .18s, min-height .18s; }
+    .page-stage canvas { display: block; max-width: 100%; height: auto; }
+    .empty-state { width: min(440px, calc(100vw - 50px)); padding: 25px; text-align: center; }
+    .empty-icon { width: 54px; height: 66px; margin: 0 auto 20px; display: grid; place-items: center; color: var(--accent); background: #f9eee8; border: 1px solid #efd8cc; border-radius: 5px; box-shadow: 5px 5px 0 #e5dfd6; }
+    .empty-icon svg { width: 25px; height: 25px; }
+    .empty-state h1 { margin: 0 0 9px; font: 500 27px Fraunces, Georgia, serif; letter-spacing: 0; }
+    .empty-state p { max-width: 330px; margin: 0 auto 20px; color: #75766f; font-size: 13px; line-height: 1.6; }
+    .drop-zone { position: relative; margin: 25px auto 0; width: min(340px, 100%); padding: 15px 12px; color: #7d7e76; border: 1px dashed #c8c8be; border-radius: 5px; font-size: 11px; }
+    .drop-zone.drag-over { border-color: var(--accent); background: #fff8f3; color: var(--accent-dark); }
+    .statusbar { min-height: 28px; padding: 0 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 10px; }
+    .status-message { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .status-right { flex: 0 0 auto; font: 10px "DM Mono", monospace; }
+
+    .modal-backdrop { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 20px; background: #17191499; animation: fade-in .16s ease-out; }
+    .modal { width: min(780px, 100%); max-height: min(740px, 92vh); display: flex; flex-direction: column; background: var(--surface); border: 1px solid #e4e3dc; border-radius: 7px; box-shadow: 0 20px 70px #10110e45; animation: rise-in .2s ease-out; }
+    .modal-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 21px 23px 17px; border-bottom: 1px solid var(--line); }
+    .modal-header h2 { margin: 0 0 4px; font: 500 21px Fraunces, Georgia, serif; }
+    .modal-header p { margin: 0; color: var(--muted); font-size: 11px; }
+    .icon-button { width: 30px; height: 30px; display: grid; place-items: center; color: #66675f; }
+    .icon-button svg { width: 17px; height: 17px; }
+    .source-name { display: flex; align-items: center; gap: 7px; margin: 0 23px; padding: 11px 0; color: #63655e; font-size: 11px; border-bottom: 1px solid var(--line); }
+    .source-name svg { width: 14px; height: 14px; color: var(--green); }
+    .source-name span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .insert-pages { min-height: 200px; flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); align-content: start; gap: 13px; padding: 18px 22px; overflow: auto; }
+    .source-page { min-width: 0; padding: 7px; border: 1px solid transparent; border-radius: 5px; background: transparent; cursor: pointer; }
+    .source-page:hover { background: #f2f1eb; }
+    .source-page.selected { border-color: var(--accent); background: #fff7f2; box-shadow: 0 0 0 1px var(--accent) inset; }
+    .source-preview { width: 100%; aspect-ratio: .707; display: grid; place-items: center; overflow: hidden; background: white; box-shadow: 0 1px 4px #25251e25; }
+    .source-preview canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+    .source-label { display: flex; justify-content: space-between; gap: 5px; padding-top: 8px; color: #77786f; font-size: 10px; }
+    .source-label strong { color: var(--ink); font-weight: 500; }
+    .modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 22px; border-top: 1px solid var(--line); }
+    .selection-hint { color: var(--muted); font-size: 11px; }
+    .modal-actions { display: flex; gap: 8px; }
+    .secondary-button { min-height: 35px; padding: 0 13px; border: 1px solid var(--line); border-radius: 5px; background: white; font-size: 12px; cursor: pointer; }
+    .secondary-button:hover { background: #f4f3ee; }
+    .loading-indicator { color: var(--muted); font-size: 12px; }
+    .toast { position: fixed; z-index: 8; right: 20px; bottom: 43px; padding: 11px 15px; border-radius: 5px; background: #242722; color: white; box-shadow: 0 5px 18px #15161235; font-size: 12px; animation: rise-in .18s ease-out; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+    @media (max-width: 650px) {
+      :root { --sidebar-width: 150px; }
+      .topbar { gap: 10px; padding: 0 11px; }
+      .brand { min-width: auto; }
+      .document-name, .saved-state { display: none; }
+      .menu { gap: 0; }
+      .menu-button { padding: 8px 7px; font-size: 12px; }
+      .top-actions { gap: 4px; }
+      .top-actions .primary-button { padding: 0 9px; }
+      .side-heading { padding: 0 10px; }
+      .thumbnail-list { padding-inline: 8px; }
+      .thumb-canvas-wrap, .thumb-caption { width: min(100%, 118px); }
+      .canvas-toolbar { padding: 0 10px; }
+      .canvas-scroll { padding: 20px 12px 40px; }
+      .modal-backdrop { padding: 9px; }
+      .insert-pages { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); padding: 12px; gap: 8px; }
+      .modal-header { padding: 17px 16px 13px; }
+      .source-name { margin-inline: 16px; }
+      .modal-footer { padding: 12px 15px; }
+    }
+    @media (max-width: 430px) {
+      .brand-name { font-size: 18px; }
+      .brand-mark { width: 25px; height: 25px; }
+      .menu-button { padding-inline: 6px; }
+      .primary-button { gap: 5px; font-size: 11px; }
+      .sidebar { min-width: 112px; }
+      .side-heading h2 { font-size: 10px; }
+      .status-right { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand" aria-label="Folio PDF editor">
+        <span class="brand-mark"><i data-lucide="files"></i></span>
+        <span class="brand-name">folio</span>
+      </div>
+      <span class="document-name" id="documentName">Untitled document</span>
+      <nav class="menu" aria-label="Main menu">
+        <button class="menu-button" id="openMasterButton" type="button">Open</button>
+        <button class="menu-button" id="insertButton" type="button" disabled>Insert</button>
+      </nav>
+      <div class="top-actions">
+        <span class="saved-state" id="savedState"><i data-lucide="check"></i><span>All changes saved</span></span>
+        <button class="primary-button" id="downloadButton" type="button" disabled><i data-lucide="download"></i>Export PDF</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar" aria-label="Document pages">
+        <div class="side-heading"><h2>Pages</h2><span class="page-count" id="pageCount">0 pages</span></div>
+        <div class="thumbnail-list" id="thumbnailList"></div>
+      </aside>
+      <div class="splitter" id="splitter" role="separator" aria-label="Resize page thumbnails panel" aria-orientation="vertical" tabindex="0"></div>
+      <main class="main-panel">
+        <div class="canvas-toolbar">
+          <div class="current-page" id="currentPageLabel">NO DOCUMENT</div>
+          <div class="view-tools" aria-label="Zoom controls">
+            <button class="tool-button" id="zoomOut" type="button" title="Zoom out" aria-label="Zoom out" disabled><i data-lucide="minus"></i></button>
+            <span class="zoom-label" id="zoomLabel">100%</span>
+            <button class="tool-button" id="zoomIn" type="button" title="Zoom in" aria-label="Zoom in" disabled><i data-lucide="plus"></i></button>
+          </div>
+        </div>
+        <div class="canvas-scroll" id="canvasScroll">
+          <section class="empty-state" id="emptyState">
+            <div class="empty-icon"><i data-lucide="file-plus-2"></i></div>
+            <h1>Make room for the pages.</h1>
+            <p>Open a PDF to get started. Add pages from other documents, arrange them, then export your finished file.</p>
+            <button class="primary-button" id="emptyOpenButton" type="button"><i data-lucide="folder-open"></i>Open a PDF</button>
+            <div class="drop-zone" id="dropZone">Or drop a PDF anywhere in this window</div>
+          </section>
+          <div class="page-stage" id="pageStage" hidden><canvas id="mainCanvas"></canvas></div>
+        </div>
+      </main>
+    </div>
+    <footer class="statusbar"><span class="status-message" id="statusMessage">Ready</span><span class="status-right" id="statusPageSize">PDF EDITOR</span></footer>
+  </div>
+
+  <input class="visually-hidden" id="masterFileInput" type="file" accept="application/pdf,.pdf">
+  <input class="visually-hidden" id="insertFileInput" type="file" accept="application/pdf,.pdf">
+
+  <div class="modal-backdrop" id="insertModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-header">
+        <div><h2 id="modalTitle">Choose a page to insert</h2><p>Select one page from the source PDF.</p></div>
+        <button class="icon-button" id="closeModalButton" type="button" title="Close" aria-label="Close"><i data-lucide="x"></i></button>
+      </header>
+      <div class="source-name"><i data-lucide="file-text"></i><span id="sourceFileName"></span></div>
+      <div class="insert-pages" id="insertPages"><span class="loading-indicator">Reading pages…</span></div>
+      <footer class="modal-footer">
+        <span class="selection-hint" id="selectionHint">Select a page</span>
+        <div class="modal-actions"><button class="secondary-button" id="cancelInsertButton" type="button">Cancel</button><button class="primary-button" id="confirmInsertButton" type="button" disabled><i data-lucide="corner-down-left"></i>Insert page</button></div>
+      </footer>
+    </section>
+  </div>
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script>
+    (() => {
+      "use strict";
+      const { PDFDocument } = PDFLib;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+      const elements = {
+        masterInput: document.getElementById("masterFileInput"),
+        insertInput: document.getElementById("insertFileInput"),
+        openButton: document.getElementById("openMasterButton"),
+        emptyOpenButton: document.getElementById("emptyOpenButton"),
+        insertButton: document.getElementById("insertButton"),
+        downloadButton: document.getElementById("downloadButton"),
+        thumbnailList: document.getElementById("thumbnailList"),
+        pageCount: document.getElementById("pageCount"),
+        pageStage: document.getElementById("pageStage"),
+        mainCanvas: document.getElementById("mainCanvas"),
+        emptyState: document.getElementById("emptyState"),
+        canvasScroll: document.getElementById("canvasScroll"),
+        currentPageLabel: document.getElementById("currentPageLabel"),
+        documentName: document.getElementById("documentName"),
+        statusMessage: document.getElementById("statusMessage"),
+        statusPageSize: document.getElementById("statusPageSize"),
+        modal: document.getElementById("insertModal"),
+        insertPages: document.getElementById("insertPages"),
+        sourceFileName: document.getElementById("sourceFileName"),
+        selectionHint: document.getElementById("selectionHint"),
+        confirmInsertButton: document.getElementById("confirmInsertButton"),
+        zoomLabel: document.getElementById("zoomLabel"),
+        zoomIn: document.getElementById("zoomIn"),
+        zoomOut: document.getElementById("zoomOut"),
+        splitter: document.getElementById("splitter"),
+        toast: document.getElementById("toast"),
+        dropZone: document.getElementById("dropZone")
+      };
+
+      let masterPdf = null;
+      let masterBytes = null;
+      let masterName = "";
+      let activePage = 0;
+      let zoom = 100;
+      let sourceBytes = null;
+      let sourceName = "";
+      let selectedSourcePage = null;
+      let toastTimer = null;
+      let renderToken = 0;
+
+      const iconRefresh = () => window.lucide && lucide.createIcons();
+      iconRefresh();
+
+      function setStatus(message) {
+        elements.statusMessage.textContent = message;
+      }
+
+      function showToast(message) {
+        elements.toast.textContent = message;
+        elements.toast.hidden = false;
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => { elements.toast.hidden = true; }, 2800);
+      }
+
+      function setDocumentControls(hasDocument) {
+        elements.insertButton.disabled = !hasDocument;
+        elements.downloadButton.disabled = !hasDocument;
+        elements.zoomIn.disabled = !hasDocument;
+        elements.zoomOut.disabled = !hasDocument;
+        elements.emptyState.hidden = hasDocument;
+        elements.pageStage.hidden = !hasDocument;
+      }
+
+      function getPageLabel(pageNumber, total) {
+        return `PAGE ${String(pageNumber).padStart(2, "0")} / ${String(total).padStart(2, "0")}`;
+      }
+
+      async function renderPage(pdf, pageNumber, canvas, maxWidth, maxHeight) {
+        const page = await pdf.getPage(pageNumber);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const scale = Math.min(maxWidth / baseViewport.width, maxHeight / baseViewport.height);
+        const viewport = page.getViewport({ scale: Math.max(0.1, scale) });
+        const context = canvas.getContext("2d", { alpha: false });
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        await page.render({ canvasContext: context, viewport }).promise;
+        return { width: baseViewport.width, height: baseViewport.height };
+      }
+
+      async function renderMasterPage(pageNumber) {
+        if (!masterPdf) return;
+        activePage = pageNumber;
+        const token = ++renderToken;
+        elements.currentPageLabel.textContent = getPageLabel(pageNumber, masterPdf.numPages);
+        elements.thumbnailList.querySelectorAll(".thumb-item").forEach((item, index) => {
+          const selected = index + 1 === pageNumber;
+          item.classList.toggle("active", selected);
+          item.setAttribute("aria-current", selected ? "page" : "false");
+        });
+        const page = await masterPdf.getPage(pageNumber);
+        if (token !== renderToken) return;
+        const base = page.getViewport({ scale: 1 });
+        const availableWidth = Math.max(240, elements.canvasScroll.clientWidth - 80);
+        const fit = Math.min(availableWidth / base.width, 1.35);
+        const scale = fit * zoom / 100;
+        const viewport = page.getViewport({ scale });
+        const canvas = elements.mainCanvas;
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        elements.pageStage.style.width = `${canvas.width}px`;
+        elements.pageStage.style.minHeight = `${canvas.height}px`;
+        await page.render({ canvasContext: canvas.getContext("2d", { alpha: false }), viewport }).promise;
+        if (token !== renderToken) return;
+        elements.zoomLabel.textContent = `${zoom}%`;
+        elements.statusPageSize.textContent = `${Math.round(base.width)} × ${Math.round(base.height)} PT`;
+      }
+
+      async function buildThumbnails(pdf) {
+        elements.thumbnailList.replaceChildren();
+        elements.pageCount.textContent = `${pdf.numPages} ${pdf.numPages === 1 ? "page" : "pages"}`;
+        for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = `thumb-item${pageNumber === activePage ? " active" : ""}`;
+          item.setAttribute("aria-label", `Go to page ${pageNumber}`);
+          const preview = document.createElement("span");
+          preview.className = "thumb-canvas-wrap";
+          const canvas = document.createElement("canvas");
+          preview.append(canvas);
+          const caption = document.createElement("span");
+          caption.className = "thumb-caption";
+          caption.innerHTML = `<strong>Page ${String(pageNumber).padStart(2, "0")}</strong><span>${pageNumber}</span>`;
+          item.append(preview, caption);
+          item.addEventListener("click", () => renderMasterPage(pageNumber));
+          elements.thumbnailList.append(item);
+          await renderPage(pdf, pageNumber, canvas, 156, 220);
+        }
+      }
+
+      async function openMaster(file) {
+        if (!file) return;
+        if (file.type && file.type !== "application/pdf") {
+          showToast("Choose a PDF file to open.");
+          return;
+        }
+        setStatus("Opening PDF…");
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          const pdf = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+          masterBytes = bytes;
+          masterPdf = pdf;
+          masterName = file.name;
+          activePage = 1;
+          zoom = 100;
+          elements.documentName.textContent = masterName;
+          elements.documentName.title = masterName;
+          setDocumentControls(true);
+          await buildThumbnails(masterPdf);
+          await renderMasterPage(1);
+          setStatus(`Opened ${masterName}`);
+        } catch (error) {
+          console.error(error);
+          setStatus("Could not open this PDF");
+          showToast("This PDF could not be opened. Check that it is not password-protected.");
+        }
+      }
+
+      function closeInsertModal() {
+        elements.modal.hidden = true;
+        elements.insertPages.replaceChildren();
+        elements.insertInput.value = "";
+        selectedSourcePage = null;
+        sourceBytes = null;
+      }
+
+      function selectSourcePage(pageNumber) {
+        selectedSourcePage = pageNumber;
+        elements.insertPages.querySelectorAll(".source-page").forEach((item, index) => {
+          item.classList.toggle("selected", index + 1 === pageNumber);
+          item.setAttribute("aria-pressed", index + 1 === pageNumber ? "true" : "false");
+        });
+        elements.selectionHint.textContent = `Page ${pageNumber} selected`;
+        elements.confirmInsertButton.disabled = false;
+      }
+
+      async function showSourcePages(file) {
+        if (!file) return;
+        if (file.type && file.type !== "application/pdf") {
+          showToast("Choose a PDF file to insert from.");
+          return;
+        }
+        sourceName = file.name;
+        elements.sourceFileName.textContent = sourceName;
+        elements.insertPages.innerHTML = '<span class="loading-indicator">Reading pages…</span>';
+        elements.selectionHint.textContent = "Select a page";
+        elements.confirmInsertButton.disabled = true;
+        selectedSourcePage = null;
+        elements.modal.hidden = false;
+        try {
+          sourceBytes = new Uint8Array(await file.arrayBuffer());
+          const sourcePdf = await pdfjsLib.getDocument({ data: sourceBytes.slice() }).promise;
+          elements.insertPages.replaceChildren();
+          for (let pageNumber = 1; pageNumber <= sourcePdf.numPages; pageNumber += 1) {
+            const item = document.createElement("button");
+            item.type = "button";
+            item.className = "source-page";
+            item.setAttribute("aria-label", `Select page ${pageNumber}`);
+            item.setAttribute("aria-pressed", "false");
+            const preview = document.createElement("span");
+            preview.className = "source-preview";
+            const canvas = document.createElement("canvas");
+            preview.append(canvas);
+            const label = document.createElement("span");
+            label.className = "source-label";
+            label.innerHTML = `<strong>Page ${String(pageNumber).padStart(2, "0")}</strong><span>${pageNumber}</span>`;
+            item.append(preview, label);
+            item.addEventListener("click", () => selectSourcePage(pageNumber));
+            elements.insertPages.append(item);
+            await renderPage(sourcePdf, pageNumber, canvas, 150, 212);
+          }
+          setStatus(`Ready to insert from ${sourceName}`);
+        } catch (error) {
+          console.error(error);
+          elements.insertPages.innerHTML = '<span class="loading-indicator">Unable to read this PDF. It may be password-protected.</span>';
+          showToast("Could not read the selected PDF.");
+        }
+      }
+
+      async function insertSelectedPage() {
+        if (!masterBytes || !sourceBytes || !selectedSourcePage) return;
+        const pageNumber = selectedSourcePage;
+        elements.confirmInsertButton.disabled = true;
+        elements.selectionHint.textContent = "Inserting page…";
+        setStatus("Adding page to document…");
+        try {
+          const masterDocument = await PDFDocument.load(masterBytes);
+          const sourceDocument = await PDFDocument.load(sourceBytes);
+          const [page] = await masterDocument.copyPages(sourceDocument, [pageNumber - 1]);
+          masterDocument.insertPage(activePage, page);
+          masterBytes = await masterDocument.save();
+          masterPdf = await pdfjsLib.getDocument({ data: masterBytes.slice() }).promise;
+          closeInsertModal();
+          activePage += 1;
+          await buildThumbnails(masterPdf);
+          await renderMasterPage(activePage);
+          setStatus(`Inserted page from ${sourceName}`);
+          showToast(`Page ${pageNumber} inserted after page ${activePage - 1}.`);
+        } catch (error) {
+          console.error(error);
+          elements.selectionHint.textContent = "Could not insert this page";
+          elements.confirmInsertButton.disabled = false;
+          setStatus("Insert failed");
+          showToast("The selected page could not be added to this PDF.");
+        }
+      }
+
+      async function exportPdf() {
+        if (!masterBytes) return;
+        try {
+          setStatus("Preparing your PDF…");
+          const pdfDocument = await PDFDocument.load(masterBytes);
+          const output = await pdfDocument.save();
+          const blob = new Blob([output], { type: "application/pdf" });
+          const url = URL.createObjectURL(blob);
+          const link = window.document.createElement("a");
+          link.href = url;
+          link.download = masterName.replace(/\.pdf$/i, "") + "-edited.pdf";
+          link.click();
+          URL.revokeObjectURL(url);
+          setStatus("PDF exported");
+        } catch (error) {
+          console.error(error);
+          setStatus("Export failed");
+          showToast("Could not export the PDF.");
+        }
+      }
+
+      elements.openButton.addEventListener("click", () => elements.masterInput.click());
+      elements.emptyOpenButton.addEventListener("click", () => elements.masterInput.click());
+      elements.masterInput.addEventListener("change", event => openMaster(event.target.files[0]));
+      elements.insertButton.addEventListener("click", () => elements.insertInput.click());
+      elements.insertInput.addEventListener("change", event => showSourcePages(event.target.files[0]));
+      elements.confirmInsertButton.addEventListener("click", insertSelectedPage);
+      elements.downloadButton.addEventListener("click", exportPdf);
+      document.getElementById("closeModalButton").addEventListener("click", closeInsertModal);
+      document.getElementById("cancelInsertButton").addEventListener("click", closeInsertModal);
+      elements.modal.addEventListener("click", event => { if (event.target === elements.modal) closeInsertModal(); });
+      document.addEventListener("keydown", event => {
+        if (event.key === "Escape" && !elements.modal.hidden) closeInsertModal();
+      });
+      elements.zoomIn.addEventListener("click", () => { zoom = Math.min(160, zoom + 10); renderMasterPage(activePage); });
+      elements.zoomOut.addEventListener("click", () => { zoom = Math.max(60, zoom - 10); renderMasterPage(activePage); });
+
+      const splitter = elements.splitter;
+      let dragStart = null;
+      splitter.addEventListener("pointerdown", event => {
+        dragStart = { x: event.clientX, width: document.querySelector(".sidebar").getBoundingClientRect().width };
+        splitter.classList.add("dragging");
+        splitter.setPointerCapture(event.pointerId);
+      });
+      splitter.addEventListener("pointermove", event => {
+        if (!dragStart) return;
+        const width = Math.max(150, Math.min(420, dragStart.width + event.clientX - dragStart.x));
+        document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
+      });
+      const endResize = () => { dragStart = null; splitter.classList.remove("dragging"); if (masterPdf) renderMasterPage(activePage); };
+      splitter.addEventListener("pointerup", endResize);
+      splitter.addEventListener("pointercancel", endResize);
+      splitter.addEventListener("keydown", event => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const sidebar = document.querySelector(".sidebar");
+        const delta = event.key === "ArrowRight" ? 16 : -16;
+        const width = Math.max(150, Math.min(420, sidebar.getBoundingClientRect().width + delta));
+        document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
+        if (masterPdf) renderMasterPage(activePage);
+      });
+
+      window.addEventListener("dragover", event => { event.preventDefault(); elements.dropZone.classList.add("drag-over"); });
+      window.addEventListener("dragleave", event => { if (!event.relatedTarget) elements.dropZone.classList.remove("drag-over"); });
+      window.addEventListener("drop", event => {
+        event.preventDefault();
+        elements.dropZone.classList.remove("drag-over");
+        const file = event.dataTransfer.files[0];
+        if (!file) return;
+        if (masterPdf) showSourcePages(file);
+        else openMaster(file);
+      });
+
+      window.addEventListener("resize", () => { if (masterPdf) renderMasterPage(activePage); });
+    })();
+  </script>
+</body>
+</html>
